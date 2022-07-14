@@ -50,6 +50,7 @@
 #include "onnxoptimizer/passes/split.h"
 #include "onnxoptimizer/passes/replace_einsum_with_matmul.h"
 #include "onnxoptimizer/passes/eliminate_nop_with_unit.h"
+#include "onnxoptimizer/passes/replace_with_layernorm.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -68,6 +69,7 @@ struct GlobalPassRegistry {
     registerPass<EliminateNopDropout>();
     registerPass<EliminateNopFlatten>();
     registerPass<ExtractConstantToInitializer>();
+    registerPass<ReplaceWithLayerNorm>();
     registerPass<EliminateIfWithConstCond>();
     registerPass<EliminateNopMonotoneArgmax>();
     registerPass<EliminateNopPad>();
