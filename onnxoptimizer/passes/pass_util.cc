@@ -27,10 +27,10 @@ namespace optimization {
     return true;                                                         \
   }
 
-FetchSoleValueOfTensor_Template(INT32, int32_t)
-FetchSoleValueOfTensor_Template(INT64, int64_t)
-FetchSoleValueOfTensor_Template(FLOAT, float)
-FetchSoleValueOfTensor_Template(DOUBLE, double)
+FetchSoleValueOfTensor_Template(INT32, int32_t);
+FetchSoleValueOfTensor_Template(INT64, int64_t);
+FetchSoleValueOfTensor_Template(FLOAT, float);
+FetchSoleValueOfTensor_Template(DOUBLE, double);
 
 bool FetchSoleIntValueOfTensor(const Value* t, int64_t& val) {
   int32_t i32_val;
@@ -40,6 +40,33 @@ bool FetchSoleIntValueOfTensor(const Value* t, int64_t& val) {
     val = i32_val;
   }
   return r1 || r2;
+}
+
+bool FetchIntsOfTensor(const Tensor* t, std::vector<int64_t>& vals) {
+  vals.clear();
+  switch (t->elem_type()) {
+    case ONNX_NAMESPACE::TensorProto_DataType_INT32: {
+      const auto data = ParseData<int32_t>(t);
+      std::transform(data.cbegin(), data.cend(), std::back_inserter(vals),
+                     [](int32_t v) { return static_cast<int64_t>(v); });
+      break;
+    }
+    case ONNX_NAMESPACE::TensorProto_DataType_INT64: {
+      vals = ParseData<int64_t>(t);
+      break;
+    }
+    default:
+      return false;
+  }
+  return true;
+}
+
+bool FetchIntsOfTensor(const Value* t, std::vector<int64_t>& vals) {
+  const Tensor* tensor = FetchConstantTensor(t);
+  if (!tensor) {
+    return false;
+  }
+  return FetchIntsOfTensor(tensor, vals);
 }
 
 }  // namespace optimization

@@ -3513,6 +3513,199 @@ class TestOptimizer(unittest.TestCase):
         assert len(optimized_model.graph.node) == 3
         assert optimized_model.graph.node[0].op_type == "Neg"
 
+    def test_replace_slice_and_matmul(self):  # type: () -> None
+        X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1])
+        Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [3, 1, 6, 5])
+
+        indices = helper.make_tensor('indices', TensorProto.INT64, [], [0])
+        axes = helper.make_tensor('axes', TensorProto.INT64, [1], [0])
+        t1 = helper.make_tensor('t1', TensorProto.FLOAT, [3, 4, 5, 6], np.random.rand(3, 4, 5, 6).astype(np.float32))
+        t2 = helper.make_tensor('t2', TensorProto.FLOAT, [6, 6], np.random.rand(6, 6).astype(np.float32))
+
+        start = helper.make_tensor('start', TensorProto.INT64, [1], [0])
+        slice_axes = helper.make_tensor('slice_axes', TensorProto.INT64, [1], [1])
+        node_def = helper.make_node('Shape', ['X'], ['X1'])
+        node_def1 = helper.make_node('Gather', ['X1', 'indices'], ['X2'], axis=0)
+        node_def2 = helper.make_node('Unsqueeze', ['X2', 'axes'], ['X3'])
+        node_def3 = helper.make_node('Slice', ['t1', 'start', 'X3', 'slice_axes'], ['X4'])
+        node_def4 = helper.make_node('MatMul', ['X4', 't2'], ['Y'])
+
+        graph = helper.make_graph(
+            [node_def, node_def1, node_def2, node_def3, node_def4, ],        # nodes
+            'test',      # name
+            [X],  # inputs
+            [Y],  # outputs
+            [indices, axes, t1, t2, start, slice_axes]
+        )
+        optimized_model = self._optimized(
+            graph, ['replace_slice_and_matmul', 'eliminate_deadend'], False)
+
+        assert len(optimized_model.graph.node) == 5
+        assert optimized_model.graph.node[3].op_type == 'MatMul'
+        assert optimized_model.graph.node[4].op_type == 'Slice'
+
+    def test_eliminate_shape_gather_after_slice(self):  # type: () -> None
+        X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1])
+        Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [3, 1, 4, 64])
+
+        indices = helper.make_tensor('indices', TensorProto.INT64, [], [0])
+        axes = helper.make_tensor('axes', TensorProto.INT64, [1], [0])
+        t1 = helper.make_tensor('t1', TensorProto.FLOAT, [3, 4, 256], np.random.rand(3, 4, 256).astype(np.float32))
+        t2 = helper.make_tensor('t2', TensorProto.FLOAT, [256, 256], np.random.rand(256, 256).astype(np.float32))
+        start = helper.make_tensor('start', TensorProto.INT64, [1], [0])
+        slice_axes = helper.make_tensor('slice_axes', TensorProto.INT64, [1], [1])
+        concat_tensor = helper.make_tensor('concat_tensor', TensorProto.INT64, [3], [-1, 4, 64])
+
+        node_def = helper.make_node('Shape', ['X'], ['X1'])
+        node_def1 = helper.make_node('Gather', ['X1', 'indices'], ['X2'], axis=0)
+        node_def2 = helper.make_node('Unsqueeze', ['X2', 'axes'], ['X3'])
+        node_def3 = helper.make_node('Slice', ['t1', 'start', 'X3', 'slice_axes'], ['X4'])
+        node_def4 = helper.make_node('MatMul', ['X4', 't2'], ['X5'])
+        node_def5 = helper.make_node('Shape', ['X4'], ['X6'])
+        node_def6 = helper.make_node('Gather', ['X6', 'indices'], ['X7'], axis=0)
+        node_def7 = helper.make_node('Unsqueeze', ['X7', 'axes'], ['X8'])
+        node_def8 = helper.make_node('Concat', ['X8', 'concat_tensor'], ['X9'], axis=0)
+        node_def9 = helper.make_node('Reshape', ['X5', 'X9'], ['Y'])
+
+        graph = helper.make_graph(
+            [node_def, node_def1, node_def2, node_def3, node_def4,
+            node_def5, node_def6, node_def7, node_def8, node_def9, ],        # nodes
+            'test',      # name
+            [X],  # inputs
+            [Y],  # outputs
+            [indices, axes, t1, t2, start, slice_axes, concat_tensor]
+        )
+        optimized_model = self._optimized(
+            graph, ['eliminate_shape_gather_after_slice', 'eliminate_deadend'], False)
+
+        assert len(optimized_model.graph.node) == 8
+
+    def test_fuse_concat_reshape_subgraph1(self):  # type: () -> None
+        X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 3, 5, 256])
+        Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [1, 3, 5, 4, 64])
+
+        zero = helper.make_tensor('0', TensorProto.INT64, [], [0])
+        one = helper.make_tensor('1', TensorProto.INT64, [], [1])
+        axes = helper.make_tensor('axes', TensorProto.INT64, [1], [0])
+        concat_tensor = helper.make_tensor('concat_tensor', TensorProto.INT64, [3], [-1, 4, 64])
+
+        node_def = helper.make_node('Shape', ['X'], ['X1'])
+        node_def1 = helper.make_node('Gather', ['X1', '0'], ['X2'], axis=0)
+        node_def2 = helper.make_node('Unsqueeze', ['X2', 'axes'], ['X3'])
+        node_def3 = helper.make_node('Shape', ['X'], ['X4'])
+        node_def4 = helper.make_node('Gather', ['X4', '1'], ['X5'], axis=0)
+        node_def5 = helper.make_node('Unsqueeze', ['X5', 'axes'], ['X6'])
+        node_def6 = helper.make_node('Concat', ['X3', 'X6', 'concat_tensor'], ['X9'], axis=0)
+        node_def7 = helper.make_node('Reshape', ['X', 'X9'], ['Y'])
+
+        graph = helper.make_graph(
+            [node_def, node_def1, node_def2, node_def3, node_def4,
+            node_def5, node_def6, node_def7],        # nodes
+            'test',      # name
+            [X],  # inputs
+            [Y],  # outputs
+            [zero, one, axes, concat_tensor]
+        )
+        optimized_model = self._optimized(
+            graph, ['fuse_concat_reshape_subgraph', 'eliminate_deadend'], False)
+
+        assert len(optimized_model.graph.node) == 1
+        assert optimized_model.graph.node[0].op_type == 'Reshape'
+
+    def test_fuse_concat_reshape_subgraph2(self):  # type: () -> None
+        X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 3, 5, 256])
+        Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [1, 5, 3, 4, 64])
+
+        zero = helper.make_tensor('0', TensorProto.INT64, [], [0])
+        two = helper.make_tensor('2', TensorProto.INT64, [], [2])
+        axes = helper.make_tensor('axes', TensorProto.INT64, [1], [0])
+        concat_tensor = helper.make_tensor('concat_tensor', TensorProto.INT64, [3], [-1, 4, 64])
+
+        node_def = helper.make_node('Shape', ['X'], ['X1'])
+        node_def1 = helper.make_node('Gather', ['X1', '0'], ['X2'], axis=0)
+        node_def2 = helper.make_node('Unsqueeze', ['X2', 'axes'], ['X3'])
+        node_def3 = helper.make_node('Shape', ['X'], ['X4'])
+        node_def4 = helper.make_node('Gather', ['X4', '2'], ['X5'], axis=0)
+        node_def5 = helper.make_node('Unsqueeze', ['X5', 'axes'], ['X6'])
+        node_def6 = helper.make_node('Concat', ['X3', 'X6', 'concat_tensor'], ['X9'], axis=0)
+        node_def7 = helper.make_node('Transpose', ['X'], ['X10'], perm=[0, 2, 1, 3])
+        node_def8 = helper.make_node('Reshape', ['X10', 'X9'], ['Y'])
+
+        graph = helper.make_graph(
+            [node_def, node_def1, node_def2, node_def3, node_def4,
+            node_def5, node_def6, node_def7, node_def8],        # nodes
+            'test',      # name
+            [X],  # inputs
+            [Y],  # outputs
+            [zero, two, axes, concat_tensor]
+        )
+        optimized_model = self._optimized(
+            graph, ['fuse_concat_reshape_subgraph', 'eliminate_deadend'], False)
+
+        assert len(optimized_model.graph.node) == 2
+        assert optimized_model.graph.node[1].op_type == 'Reshape'
+
+    def test_fuse_concat_reshape_subgraph3(self):  # type: () -> None
+        X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 3, 5, 256])
+        Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [1, 3, 5, 4, 64])
+
+        zero = helper.make_tensor('0', TensorProto.INT64, [], [0])
+        one = helper.make_tensor('1', TensorProto.INT64, [], [1])
+        axes = helper.make_tensor('axes', TensorProto.INT64, [1], [0])
+        concat_tensor = helper.make_tensor('concat_tensor', TensorProto.INT64, [3], [-1, 4, 64])
+        t1 = helper.make_tensor('t1', TensorProto.FLOAT, [256, 256], np.random.rand(256, 256).astype(np.float32))
+        t2 = helper.make_tensor('t2', TensorProto.FLOAT, [256], np.random.rand(256).astype(np.float32))
+
+        node_def = helper.make_node('Shape', ['X'], ['X1'])
+        node_def1 = helper.make_node('Gather', ['X1', '0'], ['X2'], axis=0)
+        node_def2 = helper.make_node('Unsqueeze', ['X2', 'axes'], ['X3'])
+        node_def3 = helper.make_node('Shape', ['X'], ['X4'])
+        node_def4 = helper.make_node('Gather', ['X4', '1'], ['X5'], axis=0)
+        node_def5 = helper.make_node('Unsqueeze', ['X5', 'axes'], ['X6'])
+        node_def6 = helper.make_node('Concat', ['X3', 'X6', 'concat_tensor'], ['X9'], axis=0)
+        node_def7 = helper.make_node('MatMul', ['X', 't1'], ['X10'])
+        node_def8 = helper.make_node('Add', ['X10', 't2'], ['X11'])
+        node_def9 = helper.make_node('Reshape', ['X11', 'X9'], ['Y'])
+
+        graph = helper.make_graph(
+            [node_def, node_def1, node_def2, node_def3, node_def4,
+            node_def5, node_def6, node_def7, node_def8, node_def9],        # nodes
+            'test',      # name
+            [X],  # inputs
+            [Y],  # outputs
+            [zero, one, axes, concat_tensor, t1, t2]
+        )
+        optimized_model = self._optimized(
+            graph, ['fuse_concat_reshape_subgraph', 'eliminate_deadend'], False)
+
+        assert len(optimized_model.graph.node) == 2
+        assert optimized_model.graph.node[1].op_type == 'Reshape'
+
+    def test_fuse_consecutive_slices(self):  # type: () -> None
+        X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 3, 640, 640])
+        Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [1, 3, 320, 320])
+
+        zero = helper.make_tensor('0', TensorProto.INT64, [1], [0])
+        one = helper.make_tensor('1', TensorProto.INT64, [1], [1])
+        two = helper.make_tensor('2', TensorProto.INT64, [1], [2])
+        three = helper.make_tensor('3', TensorProto.INT64, [1], [3])
+        max = helper.make_tensor('max', TensorProto.INT64, [1], [640])
+
+        node_def = helper.make_node('Slice', ['X', '0', 'max', '2', '2'], ['X1'])
+        node_def1 = helper.make_node('Slice', ['X1', '0', 'max', '3', '2'], ['Y'])
+
+        graph = helper.make_graph(
+            [node_def, node_def1],        # nodes
+            'test',      # name
+            [X],  # inputs
+            [Y],  # outputs
+            [zero, one, two, three, max]
+        )
+        optimized_model = self._optimized(
+            graph, ['fuse_consecutive_slices', 'eliminate_deadend'], False)
+
+        assert len(optimized_model.graph.node) == 5
+
     def test_fuse_reduction_unsqueeze(self):  # type: () -> None
         # type: (Tuple[int, ...], List[int], List[int], bool) -> Tuple[int, ...]
         def _calculate_post_transform_shape(input_shape, reduction_axes, unsqueeze_axes, keepdim):
