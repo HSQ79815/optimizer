@@ -52,6 +52,7 @@
 #include "onnxoptimizer/passes/eliminate_nop_concat.h"
 #include "onnxoptimizer/passes/eliminate_nop_split.h"
 #include "onnxoptimizer/passes/eliminate_nop_with_unit.h"
+#include "onnxoptimizer/passes/replace_with_layernorm.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -80,6 +81,7 @@ struct GlobalPassRegistry {
     registerPass<EliminateShapeGather>();
     registerPass<EliminateSliceAfterShape>();
     registerPass<EliminateNopTranspose>();
+    registerPass<FuseConsecutiveSlices>();
     registerPass<FuseAddBiasIntoConv>();
     registerPass<FuseBNIntoConv>();
     registerPass<FuseConsecutiveConcats>();
@@ -93,10 +95,13 @@ struct GlobalPassRegistry {
     registerPass<FusePadIntoPool>();
     registerPass<FuseTransposeIntoGemm>();
     registerPass<ReplaceEinsumWithMatmul>();
+    registerPass<EliminateShapeGatherAfterSlice>();
+    registerPass<ReplaceSliceAndMatmul>();
     registerPass<LiftLexicalReferences>();
     registerPass<SplitInit>();
     registerPass<SplitPredict>();
     registerPass<FuseConcatIntoReshape>();
+    registerPass<FuseConcatReshapeSubgraph>();
     registerPass<EliminateNopReshape>();
     registerPass<EliminateOpWithUnit>();
     registerPass<EliminateDeadEnd>();

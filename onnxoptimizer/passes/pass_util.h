@@ -24,7 +24,7 @@ inline bool IsConstantTensor(const Value* v) {
 
 inline bool IsConstantTensor(const Node* n, size_t which_input) {
   ONNX_ASSERT(which_input < n->inputs().size());
-  return IsConstantTensor(n->inputs()[which_input]);
+  return IsConstantTensor(n->input(which_input));
 }
 
 inline const Tensor* FetchConstantTensor(const Value* v) {
@@ -49,6 +49,11 @@ bool FetchSoleValueOfTensor(const Value* t, T& val);
 bool FetchSoleIntValueOfTensor(const Value* t, int64_t& val);
 
 bool FetchSoleIntValueOfAttr(const Node* node, Symbol attr_name, int64_t& val);
+// FetchIntsOfTensor is a wraper that fetchs int value tensor(INT32 or INT64)
+// easier. E.g: get data from axes tensor
+bool FetchIntsOfTensor(const Value* t, std::vector<int64_t>& vals);
+
+bool FetchIntsOfTensor(const Tensor* t, std::vector<int64_t>& vals);
 
 inline bool CheckKind(const Value* v, const Symbol& symbol) {
   return v->node()->kind() == symbol;
@@ -66,18 +71,53 @@ inline bool CheckKind(const Node* n, const char* symbol) {
   return CheckKind(n, Symbol(symbol));
 }
 
+inline bool CheckKind(const Node* n, const Symbol& lhs_type,
+                      const Symbol& rhs_type) {
+  return n->inputs().size() == 2 && CheckKind(n->input(0), lhs_type) &&
+         CheckKind(n->input(1), rhs_type);
+}
+
+inline bool CheckKind(const Node* n, const Symbol& n_type,
+                      const Symbol& lhs_type, const Symbol& rhs_type) {
+  return CheckKind(n, n_type) && CheckKind(n, lhs_type, rhs_type);
+}
+
 inline std::pair<int64_t, int64_t> FetchStartAndEndAttrOfShape(
-    const Node* shape) {
-  ONNX_ASSERT(CheckKind(shape, "Shape") && shape->input()->has_sizes());
+    const Node* shape, const int64_t rank) {
+  ONNX_ASSERT(CheckKind(shape, "Shape"));
 
   const int64_t start = AddYIfNegative<int64_t>(
       shape->hasAttribute(Symbol("start")) ? shape->i(Symbol("start")) : 0,
-      shape->input()->sizes().size());
+      rank);
   const int64_t end = AddYIfNegative<int64_t>(
-      shape->hasAttribute(Symbol("end")) ? shape->i(Symbol("end"))
-                                         : shape->input()->sizes().size(),
-      shape->input()->sizes().size());
+      shape->hasAttribute(Symbol("end")) ? shape->i(Symbol("end")) : rank,
+      rank);
   return {start, end};
+}
+
+inline std::pair<int64_t, int64_t> FetchStartAndEndAttrOfShape(
+    const Node* shape) {
+  ONNX_ASSERT(CheckKind(shape, "Shape") && shape->input()->has_sizes());
+  return FetchStartAndEndAttrOfShape(shape, shape->input()->sizes().size());
+}
+
+inline Node* FetchParrentNode(Node* node, const Symbol& type) {
+  for (auto* input : node->inputs()) {
+    if (input->node()->kind() == type) {
+      return input->node();
+    }
+  }
+  return nullptr;
+}
+
+inline bool IsIntersection(const std::vector<int64_t>& v1,
+                      const std::vector<int64_t>& v2) {
+  std::vector<int64_t> intersect;
+  std::set<int64_t> s1(v1.begin(), v1.end());
+  std::set<int64_t> s2(v2.begin(), v2.end());
+  std::set_intersection(s1.begin(), s1.end(), s2.begin(), s2.end(),
+                        std::back_inserter(intersect));
+  return !intersect.empty();
 }
 
 }  // namespace optimization

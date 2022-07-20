@@ -5,9 +5,8 @@
 // ATTENTION: The code in this file is highly EXPERIMENTAL.
 // Adventurous users should note that the APIs will probably change.
 
-#include "pass_util.h"
-
 #include "onnx/defs/tensor_util.h"
+#include "pass_util.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -28,10 +27,10 @@ namespace optimization {
     return true;                                                         \
   }
 
-FetchSoleValueOfTensor_Template(INT32, int32_t)
-FetchSoleValueOfTensor_Template(INT64, int64_t)
-FetchSoleValueOfTensor_Template(FLOAT, float)
-FetchSoleValueOfTensor_Template(DOUBLE, double)
+FetchSoleValueOfTensor_Template(INT32, int32_t);
+FetchSoleValueOfTensor_Template(INT64, int64_t);
+FetchSoleValueOfTensor_Template(FLOAT, float);
+FetchSoleValueOfTensor_Template(DOUBLE, double);
 
 bool FetchSoleIntValueOfTensor(const Value* t, int64_t& val) {
   int32_t i32_val;
@@ -57,7 +56,34 @@ bool FetchSoleIntValueOfAttr(const Node* node, Symbol attr_name, int64_t& val) {
   } else {
     return false;
   }
-};
+}
+
+bool FetchIntsOfTensor(const Tensor* t, std::vector<int64_t>& vals) {
+  vals.clear();
+  switch (t->elem_type()) {
+    case ONNX_NAMESPACE::TensorProto_DataType_INT32: {
+      const auto data = ParseData<int32_t>(t);
+      std::transform(data.cbegin(), data.cend(), std::back_inserter(vals),
+                     [](int32_t v) { return static_cast<int64_t>(v); });
+      break;
+    }
+    case ONNX_NAMESPACE::TensorProto_DataType_INT64: {
+      vals = ParseData<int64_t>(t);
+      break;
+    }
+    default:
+      return false;
+  }
+  return true;
+}
+
+bool FetchIntsOfTensor(const Value* t, std::vector<int64_t>& vals) {
+  const Tensor* tensor = FetchConstantTensor(t);
+  if (!tensor) {
+    return false;
+  }
+  return FetchIntsOfTensor(tensor, vals);
+}
 
 }  // namespace optimization
 }  // namespace ONNX_NAMESPACE
