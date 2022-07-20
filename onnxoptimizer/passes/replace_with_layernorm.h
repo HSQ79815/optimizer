@@ -45,7 +45,7 @@ namespace optimization {
 
 struct ReplaceWithLayerNorm final : public PredicateBasedPass {
   explicit ReplaceWithLayerNorm()
-      : PredicateBasedPass(PassType::Fuse, PassEfficiency::Complete,
+      : PredicateBasedPass(PassType::Replace, PassEfficiency::Complete,
                            PassOptimizationType::Compute) {}
   std::string getPassName() const override {
     return "replace_with_layernorm";
