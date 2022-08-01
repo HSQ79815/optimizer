@@ -96,17 +96,17 @@ struct ReplaceWithLayerNorm final : public PredicateBasedPass {
         ONNX_NAMESPACE::TensorProto_DataType_FLOAT) {
       return false;
     }
-    Node* mul = fetchInputNode(node, kMul);
-    if (!checkKind(mul, kConstant, kDiv) && !checkKind(mul, kDiv, kConstant) &&
-        !checkKind(mul, kParam, kDiv) && !checkKind(mul, kDiv, kParam)) {
+    Node* mul_gamma = fetchInputNode(node, kMul);
+    if (!checkKind(mul_gamma, kConstant, kDiv) && !checkKind(mul_gamma, kDiv, kConstant) &&
+        !checkKind(mul_gamma, kParam, kDiv) && !checkKind(mul_gamma, kDiv, kParam)) {
       return false;
     }
-    if (FetchConstantTensor(fetchConstantInputValue(mul))->elem_type() !=
+    if (FetchConstantTensor(fetchConstantInputValue(mul_gamma))->elem_type() !=
         ONNX_NAMESPACE::TensorProto_DataType_FLOAT) {
       return false;
     }
 
-    Node* div = fetchInputNode(mul, kDiv);
+    Node* div = fetchInputNode(mul_gamma, kDiv);
     if (!checkKind(div, kSub, kSqrt)) {
       return false;
     }
@@ -151,11 +151,11 @@ struct ReplaceWithLayerNorm final : public PredicateBasedPass {
 
   bool runTransform(Node* n, Graph& graph,
                     NodeDestroyType& destroy_current) override {
-    Node* bias_add = n;
-    Value* bias = fetchConstantInputValue(bias_add);
-    Node* mul = fetchInputNode(bias_add, kMul);
-    Value* scale = fetchConstantInputValue(mul);
-    Node* div = fetchInputNode(mul, kDiv);
+    Node* add_beta = n;
+    const Tensor* beta = FetchConstantTensor(fetchConstantInputValue(add_beta));
+    Node* mul_gamma = fetchInputNode(add_beta, kMul);
+    const Tensor* gamma = FetchConstantTensor(fetchConstantInputValue(mul_gamma));
+    Node* div = fetchInputNode(mul_gamma, kDiv);
     Node* sub = fetchInputNode(div, kSub);
     Node* add = fetchInputNode(div, kSqrt)->input()->node();
 
@@ -163,12 +163,11 @@ struct ReplaceWithLayerNorm final : public PredicateBasedPass {
     FetchSoleValueOfTensor(fetchConstantInputValue(add), epsilon);
 
     Node* layer_norm = graph.create(Symbol("LayerNorm"), 1);
-    layer_norm->i_(kaxis, int64_t(-1));
     layer_norm->f_(kepsilon, epsilon);
+    layer_norm->t_(kbeta, *beta);
+    layer_norm->t_(Symbol("gamma"), *gamma);
 
     layer_norm->addInput(sub->inputs()[0]);
-    layer_norm->addInput(scale);
-    layer_norm->addInput(bias);
     layer_norm->insertBefore(n);
 
     const std::string custom_domain("custom");
@@ -186,6 +185,9 @@ struct ReplaceWithLayerNorm final : public PredicateBasedPass {
     const bool replacing_success = tryReplacingAllUsesWith(n, layer_norm);
     if (!replacing_success) {
       return false;
+    }
+    if(layer_norm->input()->has_sizes() && !layer_norm->output()->has_sizes()){
+      layer_norm->output()->setSizes(layer_norm->input()->sizes());
     }
     destroy_current = NodeDestroyType::DestroyOne;
     return true;
