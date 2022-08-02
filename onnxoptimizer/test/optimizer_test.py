@@ -4123,8 +4123,8 @@ class TestOptimizer(unittest.TestCase):
         optimized_model = self._optimized(
             graph, ['fuse_concat_reshape_subgraph', 'eliminate_deadend'], False)
 
-        assert len(optimized_model.graph.node) == 2
-        assert optimized_model.graph.node[1].op_type == 'Reshape'
+        assert len(optimized_model.graph.node) == 3
+        assert optimized_model.graph.node[2].op_type == 'Reshape'
 
     def test_fuse_consecutive_slices(self):  # type: () -> None
         X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 3, 640, 640])

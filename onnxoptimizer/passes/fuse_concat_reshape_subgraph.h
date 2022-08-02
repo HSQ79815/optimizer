@@ -22,20 +22,58 @@ struct FuseConcatReshapeSubgraph final : public PredicateBasedPass {
     return "fuse_concat_reshape_subgraph";
   }
 
+  inline bool hasCommonParent(const Node *parent, Node *concat) {
+    for (const auto *v : concat->inputs()) {
+      const auto *tensor = FetchConstantTensor(v);
+      if (tensor) {
+        if (tensor->elem_type() != ONNX_NAMESPACE::TensorProto_DataType_INT64) {
+          return false;
+        }
+      } else {
+        if (!CheckKind(v, kUnsqueeze) ||
+            !CheckKind(v->node()->input(0), "Gather") ||
+            !CheckKind(v->node()->input(0)->node()->input(0), "Shape") ||
+            v->node()->input(0)->node()->input(0)->node()->input()->node() !=
+                parent) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   inline bool matchConcatReshape(Node *node) {
     return CheckKind(node, kReshape) && CheckKind(node->input(1), kConcat) &&
-           node->input(1)->node()->i(kaxis) == 0;
+           node->input(1)->node()->i(kaxis) == 0 &&
+           hasCommonParent(node->input(0)->node(), node->input(1)->node());
   }
 
   inline bool matchMatmulAddConcatReshape(Node *node) {
-    return CheckKind(node, kReshape, kAdd, kConcat) &&
-           (CheckKind(node->input(0)->node(), kMatMul, kParam) ||
-            CheckKind(node->input(0)->node(), kParam, kMatMul));
+    bool result = CheckKind(node, kReshape, kAdd, kConcat) &&
+                  node->input(1)->node()->i(kaxis) == 0 &&
+                  (CheckKind(node->input(0)->node(), kMatMul, kParam) ||
+                   CheckKind(node->input(0)->node(), kParam, kMatMul));
+    if (!result) {
+      return false;
+    }
+    Node *matmul_node = FetchParrentNode(node->input(0)->node(), kMatMul);
+    Node *reshape_data = nullptr;
+    if (IsConstantTensor(matmul_node, 0)) {
+      reshape_data = matmul_node->input(1)->node();
+    } else if (IsConstantTensor(matmul_node, 1)) {
+      reshape_data = matmul_node->input(0)->node();
+    } else {
+      return false;
+    }
+    return hasCommonParent(reshape_data, node->input(1)->node());
   }
 
   inline bool matchTransposeConcatReshape(Node *node) {
-    return matchConcatReshape(node) && CheckKind(node->input(0), kTranspose) &&
-           node->input(0)->node()->input()->has_sizes();
+    return CheckKind(node, kReshape, kTranspose, kConcat) &&
+           node->input(1)->node()->i(kaxis) == 0 &&
+           node->input(0)->node()->input()->has_sizes() &&
+           hasCommonParent(node->input(0)->node()->input()->node(),
+                           node->input(1)->node());
   }
 
   bool patternMatchPredicate(Node *node) override {
@@ -47,36 +85,17 @@ struct FuseConcatReshapeSubgraph final : public PredicateBasedPass {
                     NodeDestroyType &destroy_current) override {
     Value *reshape_value = node->input(0);
     Node *concat = concat = node->input(1)->node();
-    Node *reshape_data = nullptr;
 
     std::vector<int64_t> perm;
-
     const bool has_transpose = matchTransposeConcatReshape(node);
     if (has_transpose) {
       Node *transpose = reshape_value->node();
-      reshape_data = transpose->input()->node();
       if (transpose->hasAttribute(kperm)) {
         perm = transpose->is(kperm);
       } else {
         for (int i = transpose->input()->sizes().size() - 1; i >= 0; --i) {
           perm.push_back(i);
         }
-      }
-    } else {
-      if (matchMatmulAddConcatReshape(node)) {
-        Node *add_node = node->input(0)->node();
-        Node *matmul_node = FetchParrentNode(add_node, kMatMul);
-        if (IsConstantTensor(matmul_node, 0)) {
-          reshape_data = matmul_node->input(1)->node();
-        } else if (IsConstantTensor(matmul_node, 1)) {
-          reshape_data = matmul_node->input(0)->node();
-        } else {
-          return false;
-        }
-
-        ONNX_ASSERT(reshape_data != nullptr);
-      } else {
-        reshape_data = reshape_value->node();
       }
     }
 
@@ -86,9 +105,6 @@ struct FuseConcatReshapeSubgraph final : public PredicateBasedPass {
       index++;
       const auto *tensor = FetchConstantTensor(v);
       if (tensor) {
-        if (tensor->elem_type() != ONNX_NAMESPACE::TensorProto_DataType_INT64) {
-          return false;
-        }
         const auto data = ParseData<int64_t>(tensor);
         std::copy(data.cbegin(), data.cend(), std::back_inserter(shapes));
       } else {
@@ -117,14 +133,6 @@ struct FuseConcatReshapeSubgraph final : public PredicateBasedPass {
                \        /
                 reshape
         */
-
-        if (!CheckKind(v, kUnsqueeze) ||
-            !CheckKind(v->node()->input(0), "Gather") ||
-            !CheckKind(v->node()->input(0)->node()->input(0), "Shape") ||
-            v->node()->input(0)->node()->input(0)->node()->input()->node() !=
-                reshape_data) {
-          return false;
-        }
 
         const Node *unsqueeze = v->node();
         const Node *gather = unsqueeze->input(0)->node();
