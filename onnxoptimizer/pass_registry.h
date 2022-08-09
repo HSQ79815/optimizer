@@ -53,6 +53,10 @@
 #include "onnxoptimizer/passes/eliminate_nop_split.h"
 #include "onnxoptimizer/passes/eliminate_nop_with_unit.h"
 #include "onnxoptimizer/passes/replace_with_layernorm.h"
+#include "onnxoptimizer/passes/replace_slice_and_matmul.h"
+#include "onnxoptimizer/passes/eliminate_shape_gather_after_slice.h"
+#include "onnxoptimizer/passes/fuse_concat_reshape_subgraph.h"
+#include "onnxoptimizer/passes/fuse_consecutive_slices.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -109,6 +113,7 @@ struct GlobalPassRegistry {
     registerPass<EliminateShapeOp>();
     registerPass<EliminateUnusedInitializer>();
     registerPass<EliminateDuplicateInitializer>();
+    registerPass<RewriteInputDtype>();
   }
 
   ~GlobalPassRegistry() {
