@@ -35,6 +35,7 @@ struct EliminateNopSplit final : public PredicateBasedPass {
     int64_t axis =
         AddYIfNegative(node->i(kaxis), static_cast<int64_t>(sizes.size()));
     const auto split = node->is(ksplit);
+
     if (!sizes[axis].is_int || sizes[axis].dim != split[0]) {
       return false;
     }
