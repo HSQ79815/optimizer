@@ -57,6 +57,8 @@
 #include "onnxoptimizer/passes/eliminate_shape_gather_after_slice.h"
 #include "onnxoptimizer/passes/fuse_concat_reshape_subgraph.h"
 #include "onnxoptimizer/passes/fuse_consecutive_slices.h"
+#include "onnxoptimizer/passes/fuse_reshape_transpose_reshape.h"
+#include "onnxoptimizer/passes/rewrite_input_dtype.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
