@@ -51,6 +51,7 @@
 #include "onnxoptimizer/passes/replace_einsum_with_matmul.h"
 #include "onnxoptimizer/passes/eliminate_nop_concat.h"
 #include "onnxoptimizer/passes/eliminate_nop_split.h"
+#include "onnxoptimizer/passes/fuse_reshape_transpose_reshape.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -84,6 +85,7 @@ struct GlobalPassRegistry {
     registerPass<FuseConsecutiveLogSoftmax>();
     registerPass<FuseConsecutiveReduceUnsqueeze>();
     registerPass<FuseConsecutiveSqueezes>();
+    registerPass<FuseReshapeTransposeReshape>();
     registerPass<FuseConsecutiveTransposes>();
     registerPass<FuseMatMulAddBiasIntoGemm>();
     registerPass<FusePadIntoConv>();
